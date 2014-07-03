@@ -1,0 +1,196 @@
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Smith Chart</title>
+<style type="text/css">
+#scale circle, #scale path {
+  fill: none;
+  stroke: #555;
+}
+
+#xArcs path, #rCircles circle {
+  stroke: #ccf;
+}
+
+#bArcs path, #gCircles circle {
+  stroke: #fcc;
+}
+
+#xArcs text, #rCircles text {
+  fill: #66b;
+}
+
+#bArcs text, #gCircles text {
+  fill: #b66;
+  display: none;
+}
+
+#scale text {
+  text-anchor: middle;
+}
+
+#scale text {
+  font-family: sans-serif;
+  font-size: 12px;
+}
+</style>
+</head>
+<body>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="http://cdnjs.cloudflare.com/ajax/libs/mathjs/0.23.0/math.min.js"></script>
+<script>
+math = mathjs();
+size = 700;
+normalR = 50;
+
+border = 15;
+
+var gammaScaleX = d3.scale.linear();
+gammaScaleX.domain([-1, 1]);
+gammaScaleX.range([border, size-border]);
+
+var gammaScaleY = d3.scale.linear();
+gammaScaleY.domain([-1, 1]);
+gammaScaleY.range([size-border, border]);
+
+var origin = {
+  'x': gammaScaleX(1),
+  'y': gammaScaleY(0)
+}
+
+var center = {
+  'x': gammaScaleX(0),
+  'y': gammaScaleY(0)
+}
+
+function Load(r, x) {
+  this.r = r;
+  this.x = x;
+  this.load = math.complex(r, x);
+}
+
+Load.prototype.toPolar = function() {
+  return this.load.toPolar();
+}
+
+Load.prototype.gamma = function() {
+  return math.divide(
+    math.subtract(this.load, normalR),
+    math.add(this.load, normalR));
+}
+
+Load.prototype.coords = function() {
+  var gamma = this.gamma();
+  return {
+    "x": gammaScaleX(gamma.re),
+    "y": gammaScaleY(gamma.im)
+  }
+}
+
+function loadFromGamma(gamma) {
+  return math.divide(
+    math.multiply(math.add(gamma, 1), -normalR),
+    math.subtract(gamma, 1));
+}
+
+function drawResistanceCircles(loads, container, unit) {
+  var circles = container.selectAll('circle').data(loads);
+  circles.enter().append('circle');
+
+  circles
+    .attr('cy', center.y)
+    .attr('cx', function(load) {
+      var coords = load.coords();
+      return (origin.x + coords.x) / 2;
+    })
+    .attr('r', function(load) {
+      var coords = load.coords();
+      return (origin.x - coords.x) / 2;
+    });
+
+  var labels = container.selectAll('text').data(loads);
+  labels.enter().append('text');
+
+  labels
+    .text(function(load) {
+      // avoid duplicating the 0Ω label in xArcs
+      return load.r ? load.r + unit : '';
+    })
+    .attr('transform', function(load) {
+      return 'translate(' + (load.coords().x-3) + ' ' + center.y + ') rotate(-90)';
+    });
+}
+
+function drawReactanceArcs(loads, container, unit) {
+  var arcs = container.selectAll('path').data(loads);
+  arcs.enter().append('path');
+
+  arcs
+    .attr('d', function(load) {
+      var end = load.coords();
+
+      // Interesting fact about Smith charts: the constant-resistance circle X
+      // has the same radius as the constant-reactance arc X+1, if X is a
+      // normalized impedance.
+
+      var rLoad = new Load(math.abs(load.x) - normalR, 0);
+      var r = (origin.x - rLoad.coords().x) / 2;
+      var sweepFlag = load.x > 0 ? '1' : '0';
+
+      var commands = ['M', origin.x, origin.y]
+      if (load.x) {
+        commands = commands.concat(['A', r, r, 0, 0, sweepFlag, end.x, end.y]);
+      } else {
+        commands = commands.concat(['H', end.x]);
+      }
+
+      return commands.join(' ');
+    });
+
+  var labels = container.selectAll('text').data(loads);
+  labels.enter().append('text');
+
+  labels
+    .text(function(load) {
+      return load.x + unit;
+    })
+    .attr('transform', function(load) {
+      var coords = load.coords();
+      var phi = load.gamma().toPolar().phi;
+      var rot = (90 - (phi*180.0/math.pi));
+      return 'translate(' + coords.x + ' ' + coords.y + ') '
+        + 'rotate(' + rot + ') '
+        + 'translate(0 -3)';
+    });
+}
+
+var svg = d3.select("body").append("svg");
+svg.attr('width', size).attr('height', size);
+
+var scale = svg.append('g').attr('id', 'scale');
+var bArcs = scale.append('g')
+  .attr('id', 'bArcs')
+  .attr('transform', 'rotate(180 ' + center.x + ' ' + center.y + ')');
+var gCircles = scale.append('g')
+  .attr('id', 'gCircles')
+  .attr('transform', 'rotate(180 ' + center.x + ' ' + center.y + ')');
+var xArcs = scale.append('g').attr('id', 'xArcs');
+var rCircles = scale.append('g').attr('id', 'rCircles');
+
+var rTicks = [0, .2, .5, 1, 2, 5].map(function(r) {
+  return new Load(r * normalR, 0);
+})
+var xTicks = [-5, -2, -1, -.5, -.2, 0, .2, .5, 1, 2, 5].map(function(x) {
+  return new Load(0, x*normalR);
+})
+
+drawReactanceArcs(xTicks, xArcs, 'Ω');
+drawResistanceCircles(rTicks, rCircles, 'Ω');
+
+drawReactanceArcs(xTicks, bArcs, 'S');
+drawResistanceCircles(rTicks, gCircles, 'S');
+
+
+</script>
+</body>
+</html>
